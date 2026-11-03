@@ -5,7 +5,7 @@ from datetime import datetime
 
 # 🔐 خواندن توکن از Secrets
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
-CHAT_ID = os.environ.get("CHAT_ID") # کانال اصلی
+CHAT_ID = os.environ.get("CHAT_ID")
 
 def send_telegram_msg(chat_id, message):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
@@ -100,21 +100,33 @@ def analyze_coin(coin):
         return f"❌ خطا در تحلیل {coin}: {e}"
     return f"❌ داده کافی برای {coin} یافت نشد."
 
-# ================= چک کردن پیام‌های کاربران =================
+# ================= چک کردن پیام‌های کاربران (با لاگ کامل) =================
 def check_telegram_commands():
     try:
-        # 🔥 قدم مهم: حذف Webhook برای اینکه بتونیم از getUpdates استفاده کنیم
-        requests.get(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/deleteWebhook", timeout=5)
-        
         print(">>> Checking Telegram for new messages...")
-        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates?timeout=5"
-        response = requests.get(url, timeout=15).json()
+        print(f">>> Token length: {len(TELEGRAM_TOKEN)}")
+        print(f">>> Token starts with: {TELEGRAM_TOKEN[:10]}")
         
-        updates_count = len(response.get("result", []))
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates?timeout=5"
+        response = requests.get(url, timeout=15)
+        
+        print(f">>> Response Status Code: {response.status_code}")
+        print(f">>> Response Text: {response.text}")
+        
+        if response.status_code != 200:
+            print(">>> ERROR: Telegram API is not returning 200. The token might be wrong.")
+            return
+
+        data = response.json()
+        if not data.get("ok"):
+            print(f">>> ERROR: Telegram API returned ok:false. Reason: {data.get('description')}")
+            return
+
+        updates_count = len(data.get("result", []))
         print(f">>> Found {updates_count} new messages in Telegram queue.")
         
-        if response.get("ok") and response.get("result"):
-            updates = response["result"]
+        if data.get("result"):
+            updates = data["result"]
             last_update_id = None
             
             for msg in updates:
@@ -137,7 +149,6 @@ def check_telegram_commands():
                         else:
                             print(">>> No coin name provided.")
             
-            # پاک کردن صف پیام‌ها تا دوباره تکرار نشن
             if last_update_id:
                 requests.get(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates?offset={last_update_id + 1}", timeout=5)
                 print(">>> Cleared Telegram message queue.")
