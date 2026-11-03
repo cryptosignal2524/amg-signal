@@ -14,7 +14,7 @@ def send_telegram_msg(chat_id, message):
     except Exception as e:
         print(f"Error sending message: {e}")
 
-def send_timeframe_menu(chat_id):
+def send_main_menu(chat_id):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     keyboard = {
         "inline_keyboard": [
@@ -30,13 +30,11 @@ def send_timeframe_menu(chat_id):
     }
     payload = {
         "chat_id": chat_id, 
-        "text": "لطفاً تایم‌فریم مورد نظر برای تحلیل را انتخاب کنید:", 
+        "text": "👋 سلام!\nلطفاً <b>تایم‌فریم</b> مورد نظر برای تحلیل را انتخاب کنید:", 
+        "parse_mode": "HTML",
         "reply_markup": keyboard
     }
-    try:
-        requests.post(url, json=payload, timeout=10)
-    except Exception as e:
-        print(f"Error sending menu: {e}")
+    requests.post(url, json=payload)
 
 # ================= دریافت ۵۰ ارز برتر =================
 def get_top_50_coins():
@@ -164,17 +162,17 @@ def check_telegram_commands():
                     user_chat_id = msg["message"]["chat"]["id"]
                     
                     if text == "/START":
-                        send_timeframe_menu(user_chat_id)
+                        send_main_menu(user_chat_id)
                         continue
                     
-                    # اگر کاربر به پیام درخواست نام ارز پاسخ داده باشد (با ForceReply)
+                    # اگر کاربر به پیام درخواست نام ارز پاسخ داده باشد
                     if "reply_to_message" in msg["message"]:
                         original_text = msg["message"]["reply_to_message"]["text"]
                         tf = None
-                        if "اسکلپ" in original_text: tf = "15min"
-                        elif "1 ساعته" in original_text: tf = "1hour"
-                        elif "4 ساعته" in original_text: tf = "4hour"
-                        elif "روزانه" in original_text: tf = "1day"
+                        if "15min" in original_text: tf = "15min"
+                        elif "1hour" in original_text: tf = "1hour"
+                        elif "4hour" in original_text: tf = "4hour"
+                        elif "1day" in original_text: tf = "1day"
                         
                         if tf and text.isalnum():
                             send_telegram_msg(user_chat_id, f"⏳ در حال تحلیل {text} در تایم‌فریم {tf}...")
@@ -182,10 +180,8 @@ def check_telegram_commands():
                             send_telegram_msg(user_chat_id, result)
                             continue
                     
-                    # اگر کاربر بدون منو اسم ارز را فرستاد (مثلا BTC)
+                    # اگر کاربر بدون منو اسم ارز را فرستاد
                     if text.isalnum() and len(text) <= 6:
-                        send_telegram_msg(user_chat_id, f"شما ارز <b>{text}</b> را انتخاب کردید. لطفا یک تایم‌فریم را از منوی زیر انتخاب کنید:")
-                        # در اینجا از همان منو استفاده می‌کنیم
                         keyboard = {
                             "inline_keyboard": [
                                 [
@@ -198,9 +194,9 @@ def check_telegram_commands():
                                 ]
                             ]
                         }
-                        requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", json={"chat_id": user_chat_id, "text": "تایم‌فریم مورد نظر را انتخاب کنید:", "reply_markup": keyboard})
+                        requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", 
+                                      json={"chat_id": user_chat_id, "text": f"شما ارز <b>{text}</b> را انتخاب کردید. تایم‌فریم مورد نظر را انتخاب کنید:", "parse_mode": "HTML", "reply_markup": keyboard})
 
-                
                 # ۲. بررسی کلیک روی دکمه‌های شیشه‌ای
                 elif "callback_query" in msg:
                     callback_query = msg["callback_query"]
@@ -215,13 +211,13 @@ def check_telegram_commands():
                         tf_persian = {"15min": "اسکلپ", "1hour": "۱ ساعته", "4hour": "۴ ساعته", "1day": "روزانه"}
                         tf_name = tf_persian.get(tf, tf)
                         
-                        # درخواست نام ارز با قابلیت ForceReply
+                        # درخواست نام ارز با قابلیت Reply (ForceReply)
                         url_ask = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
                         payload_ask = {
                             "chat_id": user_chat_id,
-                            "text": f"تایم‌فریم <b>{tf_name}</b> انتخاب شد.\nلطفا نام ارز را ارسال کنید (مثال: BTC):",
+                            "text": f"تایم‌فریم <b>{tf_name} ({tf})</b> انتخاب شد.\n\nلطفا نام ارز را ارسال کنید (مثال: BTC):",
                             "parse_mode": "HTML",
-                            "reply_markup": {"force_reply": True}
+                            "reply_markup": {"force_reply": True, "selective": True}
                         }
                         requests.post(url_ask, json=payload_ask)
                         
@@ -256,7 +252,7 @@ def get_trend(coin, timeframe):
         pass
     return "نامشخص ⚪", 0, 0
 
-# ================= حلقه اصلی (اسکن خودکار ۵۰ ارز) =================
+# ================= حلقه اصلی (اسکن خودکار ۵۰ ارز برای کانال) =================
 def scan_market():
     watch_list = get_top_50_coins()
     if not watch_list: watch_list = ["BTC", "ETH", "SOL", "XRP", "ADA"]
