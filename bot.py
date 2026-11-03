@@ -71,100 +71,101 @@ def analyze_single_tf(coin, tf):
     try:
         url = f"https://api.kucoin.com/api/v1/market/candles?type={tf}&symbol={coin}-USDT"
         response = requests.get(url, timeout=10).json()
-        if response.get("code") == "200000":
-            data = response.get("data", [])
-            data.reverse()
-            opens = [float(item[1]) for item in data]
-            closes = [float(item[2]) for item in data]
-            highs = [float(item[3]) for item in data]
-            lows = [float(item[4]) for item in data]
-            volumes = [float(item[5]) for item in data]
+        
+        if response.get("code") != "200000":
+            return f"❌ ارز {coin} در صرافی یافت نشد یا نماد آن صحیح نیست."
             
-            if len(closes) > 50:
-                current_price = closes[-1]
-                current_volume = volumes[-1]
-                avg_volume = sum(volumes[-20:]) / 20
-                ema50 = calc_ema(closes, 50)
-                atr = calc_atr(highs, lows, closes)
-                
-                pattern_name, signal_type = detect_patterns(opens, highs, lows, closes, volumes)
-                
-                position = "⚪ خنثی (Neutral)"
-                tp_sl_info = ""
-                
-                if signal_type == "BUY" and current_price > ema50:
-                    if current_volume > avg_volume * 1.2:
-                        position = "🟢 <b>سیگنال خرید (BUY)</b>"
-                        sl = current_price - (atr * 1.5)
-                        tp = current_price + (atr * 3.0)
-                        tp_sl_info = f"\n🎯 <b>Take Profit:</b> {tp:.4f}\n🛑 <b>Stop Loss:</b> {sl:.4f}"
-                elif signal_type == "SELL" and current_price < ema50:
-                    if current_volume > avg_volume * 1.2:
-                        position = "🔴 <b>سیگنال فروش (SELL)</b>"
-                        sl = current_price + (atr * 1.5)
-                        tp = current_price - (atr * 3.0)
-                        tp_sl_info = f"\n🎯 <b>Take Profit:</b> {tp:.4f}\n🛑 <b>Stop Loss:</b> {sl:.4f}"
-                elif pattern_name:
-                    position = "🟡 الگو دیده شد ولی تاییدیه روند/حجم ندارد"
+        data = response.get("data", [])
+        if not data:
+            return f"❌ داده‌ای برای {coin} یافت نشد."
+            
+        data.reverse()
+        opens = [float(item[1]) for item in data]
+        closes = [float(item[2]) for item in data]
+        highs = [float(item[3]) for item in data]
+        lows = [float(item[4]) for item in data]
+        volumes = [float(item[5]) for item in data]
+        
+        if len(closes) > 50:
+            current_price = closes[-1]
+            current_volume = volumes[-1]
+            avg_volume = sum(volumes[-20:]) / 20
+            ema50 = calc_ema(closes, 50)
+            atr = calc_atr(highs, lows, closes)
+            
+            pattern_name, signal_type = detect_patterns(opens, highs, lows, closes, volumes)
+            
+            position = "⚪ خنثی (Neutral)"
+            tp_sl_info = ""
+            
+            if signal_type == "BUY" and current_price > ema50:
+                if current_volume > avg_volume * 1.2:
+                    position = "🟢 <b>سیگنال خرید (BUY)</b>"
+                    sl = current_price - (atr * 1.5)
+                    tp = current_price + (atr * 3.0)
+                    tp_sl_info = f"\n🎯 <b>Take Profit:</b> {tp:.4f}\n🛑 <b>Stop Loss:</b> {sl:.4f}"
+            elif signal_type == "SELL" and current_price < ema50:
+                if current_volume > avg_volume * 1.2:
+                    position = "🔴 <b>سیگنال فروش (SELL)</b>"
+                    sl = current_price + (atr * 1.5)
+                    tp = current_price - (atr * 3.0)
+                    tp_sl_info = f"\n🎯 <b>Take Profit:</b> {tp:.4f}\n🛑 <b>Stop Loss:</b> {sl:.4f}"
+            elif pattern_name:
+                position = "🟡 الگو دیده شد ولی تاییدیه روند/حجم ندارد"
 
-                msg = (f"📊 <b>تحلیل {coin}/USDT (تایم‌فریم {tf})</b>\n"
-                       f"━━━━━━━━━━━━━━━\n"
-                       f"🎯 <b>موقعیت: {position}</b>\n\n"
-                       f"💰 قیمت فعلی: {current_price:.4f}\n"
-                       f"🕯️ الگوی شناسایی شده: {pattern_name if pattern_name else 'الگوی خاصی یافت نشد'}\n"
-                       f"📈 روند (EMA50): {'صعودی ✅' if current_price > ema50 else 'نزولی ❌'}\n"
-                       f"📊 حجم: {current_volume:.0f} (میانگین: {avg_volume:.0f}){tp_sl_info}\n\n"
-                       f"⏰ زمان: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
-                return msg
+            msg = (f"📊 <b>تحلیل {coin}/USDT (تایم‌فریم {tf})</b>\n"
+                   f"━━━━━━━━━━━━━━━\n"
+                   f"🎯 <b>موقعیت: {position}</b>\n\n"
+                   f"💰 قیمت فعلی: {current_price:.4f}\n"
+                   f"🕯️ الگوی شناسایی شده: {pattern_name if pattern_name else 'الگوی خاصی یافت نشد'}\n"
+                   f"📈 روند (EMA50): {'صعودی ✅' if current_price > ema50 else 'نزولی ❌'}\n"
+                   f"📊 حجم: {current_volume:.0f} (میانگین: {avg_volume:.0f}){tp_sl_info}\n\n"
+                   f"⏰ زمان: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+            return msg
+        else:
+            return f"❌ داده کافی برای تحلیل {coin} وجود ندارد."
     except Exception as e:
         return f"❌ خطا در تحلیل {coin}: {e}"
-    return f"❌ ارز {coin} در صرافی یافت نشد یا داده کافی ندارد."
 
 # ================= چک کردن پیام‌های کاربران =================
 def check_telegram_commands():
     try:
+        print(">>> Checking Telegram for messages...")
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates?timeout=5"
         response = requests.get(url, timeout=15)
-        if response.status_code != 200: return
+        
+        if response.status_code != 200: 
+            print(f"Telegram API Error: {response.status_code}")
+            return
+            
         data = response.json()
         
         if data.get("ok") and data.get("result"):
             updates = data["result"]
             last_update_id = None
+            print(f">>> Found {len(updates)} messages in queue.")
+            
             for msg in updates:
                 last_update_id = msg["update_id"]
                 
                 if "message" in msg and "text" in msg["message"]:
                     text = msg["message"]["text"].strip().upper()
-                    msg_date = msg["message"].get("date", 0)
                     user_chat_id = msg["message"]["chat"]["id"]
-                    
-                    # 🔥 فیلتر زمانی: فقط به پیام‌هایی که در ۲ دقیقه اخیر فرستاده شده‌اند جواب بده
-                    if time.time() - msg_date > 120:
-                        continue
+                    print(f">>> Received message: '{text}' from {user_chat_id}")
                     
                     if text == "/START":
-                        welcome_msg = (
-                            "👋 سلام! به ربات تحلیل AMG خوش آمدید.\n\n"
-                            "فقط کافیه اسم ارز رو بفرستی تا تحلیل ۱ ساعته بگیری:\n"
-                            "🔹 <b>BTC</b> (تحلیل ۱ ساعته)\n\n"
-                            "برای تایم‌فریم دیگه، با فاصله بنویس:\n"
-                            "🔹 <b>ETH 15m</b> (اسکلپ)\n"
-                            "🔹 <b>SOL 4h</b> (۴ ساعته)\n"
-                            "🔹 <b>ADA 1d</b> (روزانه)"
-                        )
-                        send_telegram_msg(user_chat_id, welcome_msg)
+                        send_telegram_msg(user_chat_id, "👋 سلام!\nاسم ارز رو بفرست تا تحلیلش کنم (مثلا: BTC).\nبرای تایم‌فریم خاص بنویس: BTC 4h")
                         continue
                     
                     parts = text.split()
                     
-                    # ۱. اگر فقط اسم ارز بود (مثلا BTC)
+                    # ۱. فقط اسم ارز (پیش‌فرض 1 ساعته)
                     if len(parts) == 1 and text.isalnum() and len(text) <= 6:
-                        send_telegram_msg(user_chat_id, f"⏳ در حال تحلیل {text} در تایم‌فریم پیش‌فرض (1h)...")
+                        send_telegram_msg(user_chat_id, f"⏳ در حال تحلیل {text} (تایم‌فریم پیش‌فرض 1h)...")
                         result = analyze_single_tf(text, "1hour")
                         send_telegram_msg(user_chat_id, result)
                     
-                    # ۲. اگر ارز و تایم‌فریم با هم بود (مثلا BTC 4h)
+                    # ۲. ارز + تایم‌فریم
                     elif len(parts) == 2:
                         coin = parts[0]
                         tf_input = parts[1].lower()
@@ -182,34 +183,20 @@ def check_telegram_commands():
                         else:
                             send_telegram_msg(user_chat_id, "❌ تایم‌فریم نامعتبر است. لطفا از 15m، 1h، 4h یا 1d استفاده کنید.")
             
+            # پاک کردن صف پیام‌ها تا دوباره تکرار نشن
             if last_update_id:
                 requests.get(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates?offset={last_update_id + 1}", timeout=5)
+                print(">>> Cleared Telegram queue.")
     except Exception as e:
-        print(f">>> Error: {e}")
-
-# ================= دریافت روند در تایم‌فریم‌های مختلف =================
-def get_trend(coin, timeframe):
-    try:
-        url = f"https://api.kucoin.com/api/v1/market/candles?type={timeframe}&symbol={coin}-USDT"
-        response = requests.get(url, timeout=10).json()
-        if response.get("code") == "200000":
-            data = response.get("data", [])
-            data.reverse()
-            closes = [float(item[2]) for item in data]
-            if len(closes) > 50:
-                ema50 = calc_ema(closes, 50)
-                current_price = closes[-1]
-                return "صعودی 🟢" if current_price > ema50 else "نزولی 🔴", current_price, ema50
-    except Exception:
-        pass
-    return "نامشخص ⚪", 0, 0
+        print(f">>> Error in check_telegram_commands: {e}")
 
 # ================= حلقه اصلی (اسکن خودکار ۵۰ ارز برای کانال) =================
 def scan_market():
-    watch_list = get_top_50_coins()
+    # برای صرفه جویی در زمان، فقط ۱۰ ارز برتر رو اسکن میکنیم (چون اسکن ۵۰ ارز زمان‌بره)
+    watch_list = get_top_50_coins()[:10] 
     if not watch_list: watch_list = ["BTC", "ETH", "SOL", "XRP", "ADA"]
         
-    print(f">>> Scanning {len(watch_list)} coins...")
+    print(f">>> Scanning {len(watch_list)} coins for channel signals...")
     for coin in watch_list:
         try:
             trend_1d, _, _ = get_trend(coin, "1day")
