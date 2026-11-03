@@ -100,11 +100,15 @@ def analyze_coin(coin):
         return f"❌ خطا در تحلیل {coin}: {e}"
     return f"❌ داده کافی برای {coin} یافت نشد."
 
-# ================= چک کردن پیام‌های کاربران (بدون محدودیت زمانی) =================
+# ================= چک کردن پیام‌های کاربران (با لاگ) =================
 def check_telegram_commands():
     try:
+        print(">>> Checking Telegram for new messages...")
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates?timeout=5"
         response = requests.get(url, timeout=15).json()
+        
+        updates_count = len(response.get("result", []))
+        print(f">>> Found {updates_count} new messages in Telegram queue.")
         
         if response.get("ok") and response.get("result"):
             updates = response["result"]
@@ -116,30 +120,35 @@ def check_telegram_commands():
                 if "message" in msg and "text" in msg["message"]:
                     text = msg["message"]["text"].strip()
                     user_chat_id = msg["message"]["chat"]["id"]
+                    print(f">>> Received message: '{text}' from Chat ID: {user_chat_id}")
                     
                     if text.lower().startswith("/analyze") or text.lower().startswith("analyze"):
                         parts = text.split()
                         if len(parts) > 1:
                             coin = parts[1].upper()
+                            print(f">>> Analyzing {coin}...")
                             send_telegram_msg(user_chat_id, f"⏳ در حال تحلیل {coin}... لطفا صبر کنید.")
                             result = analyze_coin(coin)
                             send_telegram_msg(user_chat_id, result)
+                            print(f">>> Analysis sent for {coin}.")
+                        else:
+                            print(">>> No coin name provided.")
             
-            # این خط باعث میشه پیام‌ها به عنوان خوانده شده علامت بخورن تا دفعه بعد دوباره جواب داده نشن
             if last_update_id:
                 requests.get(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates?offset={last_update_id + 1}", timeout=5)
+                print(">>> Cleared Telegram message queue.")
     except Exception as e:
-        print(f"Error checking commands: {e}")
+        print(f">>> Error checking commands: {e}")
 
 # ================= حلقه اصلی =================
 def scan_market():
-    print(f"[{datetime.now()}] Fetching Top 50 Coins...")
+    print(f">>> Fetching Top 50 Coins...")
     watch_list = get_top_50_coins()
     
     if not watch_list:
         watch_list = ["BTC", "ETH", "SOL", "XRP", "ADA"]
         
-    print(f"Scanning {len(watch_list)} coins...")
+    print(f">>> Scanning {len(watch_list)} coins...")
     for coin in watch_list:
         try:
             url = f"https://api.kucoin.com/api/v1/market/candles?type=15min&symbol={coin}-USDT"
@@ -172,7 +181,7 @@ def scan_market():
                                    f"🎯 Take Profit: {tp:.4f}\n"
                                    f"🛑 Stop Loss: {sl:.4f}")
                             send_telegram_msg(CHAT_ID, msg)
-                            print(f"Buy signal sent for {coin}.")
+                            print(f">>> Buy signal sent for {coin}.")
                     
                     elif ema9 < ema20 and macd_line < 0 and 25 < rsi14 < 50:
                         if current_price < lower_band and current_volume > (avg_volume * 1.5):
@@ -185,10 +194,10 @@ def scan_market():
                                    f"🎯 Take Profit: {tp:.4f}\n"
                                    f"🛑 Stop Loss: {sl:.4f}")
                             send_telegram_msg(CHAT_ID, msg)
-                            print(f"Sell signal sent for {coin}.")
+                            print(f">>> Sell signal sent for {coin}.")
                     
         except Exception as e:
-            print(f"Error {coin}: {e}")
+            print(f">>> Error {coin}: {e}")
         time.sleep(0.5) 
 
 if __name__ == "__main__":
