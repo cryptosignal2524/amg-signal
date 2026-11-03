@@ -2,7 +2,7 @@ import requests
 import time
 from datetime import datetime
 
-# 🔐 توکن مستقیماً اینجا قرار گرفت (بدون نیاز به Secrets)
+# 🔐 توکن مستقیماً اینجا قرار گرفت
 TELEGRAM_TOKEN = "9268038700:AAGEtH4cmpoQg7rzPs8h0APqB8-HO93ILz8"
 CHAT_ID = "@AMG_Signals" # نام کانال شما
 
@@ -23,8 +23,7 @@ def get_top_50_coins():
             tickers = response["data"]["ticker"]
             usdt_pairs = [t for t in tickers if t["symbol"].endswith("-USDT")]
             usdt_pairs.sort(key=lambda x: float(x["volValue"]), reverse=True)
-            top_50 = [t["symbol"].replace("-USDT", "") for t in usdt_pairs[:50]]
-            return top_50
+            return [t["symbol"].replace("-USDT", "") for t in usdt_pairs[:50]]
     except Exception as e:
         print(f"Error fetching top coins: {e}")
     return []
@@ -43,23 +42,32 @@ def calc_rsi(data, period=14):
         diff = data[i] - data[i-1]
         if diff > 0: gains += diff
         else: losses -= diff
-    avg_gain = gains / period
-    avg_loss = losses / period
+    avg_gain, avg_loss = gains / period, losses / period
     if avg_loss == 0: return 100
-    rs = avg_gain / avg_loss
-    return 100 - (100 / (1 + rs))
+    return 100 - (100 / (1 + (avg_gain / avg_loss)))
 
-def calc_macd(data):
-    return calc_ema(data, 12) - calc_ema(data, 26)
+def calc_stoch_rsi(data, rsi_period=14, stoch_period=14):
+    if len(data) < rsi_period + stoch_period: return 50
+    rsi_values = []
+    for i in range(len(data) - rsi_period):
+        rsi_values.append(calc_rsi(data[i:i+rsi_period+1], rsi_period))
+    if len(rsi_values) < stoch_period: return 50
+    recent_rsi = rsi_values[-stoch_period:]
+    min_rsi, max_rsi = min(recent_rsi), max(recent_rsi)
+    if max_rsi - min_rsi == 0: return 50
+    return ((rsi_values[-1] - min_rsi) / (max_rsi - min_rsi)) * 100
 
 def calc_bollinger(data, period=20, std_dev=2):
-    if len(data) < period: return None, None, None
+    if len(data) < period: return None, None, None, None
     sma = sum(data[-period:]) / period
     variance = sum((x - sma) ** 2 for x in data[-period:]) / period
     std = variance ** 0.5
-    return sma, sma + (std * std_dev), sma - (std * std_dev)
+    upper_band = sma + (std * std_dev)
+    lower_band = sma - (std * std_dev)
+    bb_width = (upper_band - lower_band) / sma 
+    return sma, upper_band, lower_band, bb_width
 
-# ================= تحلیل یک ارز خاص (دستی) =================
+# ================= تحلیل اختصاصی (با نام ارز) =================
 def analyze_coin(coin):
     try:
         url = f"https://api.kucoin.com/api/v1/market/candles?type=15min&symbol={coin}-USDT"
@@ -70,92 +78,81 @@ def analyze_coin(coin):
             closes = [float(item[2]) for item in data]
             volumes = [float(item[5]) for item in data]
             
-            if len(closes) > 30:
+            if len(closes) > 50:
                 current_price = closes[-1]
                 current_volume = volumes[-1]
-                ema9 = calc_ema(closes, 9)
-                ema20 = calc_ema(closes, 20)
-                rsi14 = calc_rsi(closes[-15:], 14)
-                macd_line = calc_macd(closes)
-                sma, upper_band, lower_band = calc_bollinger(closes, 20, 2)
+                
+                stoch_rsi = calc_stoch_rsi(closes)
+                sma, upper_band, lower_band, bb_width = calc_bollinger(closes, 20, 2)
                 avg_volume = sum(volumes[-20:]) / 20
                 
-                status = "⚖️ خنثی (بدون سیگنال قوی)"
-                if ema9 > ema20 and macd_line > 0 and 50 < rsi14 < 75 and current_price > upper_band:
-                    status = "🟢 <b>سیگنال خرید (صعودی)</b>"
-                elif ema9 < ema20 and macd_line < 0 and 25 < rsi14 < 50 and current_price < lower_band:
-                    status = "🔴 <b>سیگنال فروش (نزولی)</b>"
+                status = "⚖️ خنثی (بدون سیگنال زودهنگام)"
+                if stoch_rsi < 20:
+                    status = "🟢 <b>آماده رشد (اشباع فروش StochRSI)</b>"
+                elif stoch_rsi > 80:
+                    status = "🔴 <b>آماده ریزش (اشباع خرید StochRSI)</b>"
                     
-                msg = (f"📊 <b>تحلیل اختصاصی {coin}/USDT</b>\n\n"
+                msg = (f"📊 <b>تحلیل زودهنگام {coin}/USDT</b>\n\n"
                        f"💰 قیمت فعلی: {current_price:.4f}\n"
                        f"📈 وضعیت: {status}\n\n"
-                       f"🔹 RSI: {rsi14:.2f}\n"
-                       f"🔹 MACD: {'مثبت' if macd_line > 0 else 'منفی'}\n"
-                       f"🔹 EMA9 > EMA20: {'بله' if ema9 > ema20 else 'خیر'}\n"
-                       f"🔹 حجم معاملات: {current_volume:.0f} (میانگین: {avg_volume:.0f})\n\n"
+                       f"🔹 StochRSI: {stoch_rsi:.2f}\n"
+                       f"🔹 فشردگی بولینگر: {bb_width:.4f}\n"
+                       f"🔹 حجم فعلی: {current_volume:.0f} (میانگین: {avg_volume:.0f})\n\n"
                        f"⏰ زمان: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
                 return msg
     except Exception as e:
         return f"❌ خطا در تحلیل {coin}: {e}"
-    return f"❌ داده کافی برای {coin} یافت نشد."
+    return f"❌ ارز {coin} در صرافی یافت نشد یا داده کافی ندارد."
 
 # ================= چک کردن پیام‌های کاربران =================
 def check_telegram_commands():
     try:
-        print(">>> Checking Telegram for new messages...")
-        
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates?timeout=5"
         response = requests.get(url, timeout=15)
         
-        if response.status_code != 200:
-            print(f">>> ERROR: Status {response.status_code}")
-            return
+        if response.status_code != 200: return
 
         data = response.json()
-        if not data.get("ok"):
-            print(f">>> ERROR: {data.get('description')}")
-            return
-
-        updates_count = len(data.get("result", []))
-        print(f">>> Found {updates_count} new messages in Telegram queue.")
-        
-        if data.get("result"):
+        if data.get("ok") and data.get("result"):
             updates = data["result"]
             last_update_id = None
-            
             for msg in updates:
                 last_update_id = msg["update_id"]
-                
                 if "message" in msg and "text" in msg["message"]:
-                    text = msg["message"]["text"].strip()
+                    text = msg["message"]["text"].strip().upper()
                     user_chat_id = msg["message"]["chat"]["id"]
-                    print(f">>> Received: '{text}'")
                     
-                    if text.lower().startswith("/analyze") or text.lower().startswith("analyze"):
+                    if text == "/START": continue
+                    
+                    coin = None
+                    # اگر دستور با /analyze شروع شده باشد
+                    if text.startswith("/ANALYZE"):
                         parts = text.split()
-                        if len(parts) > 1:
-                            coin = parts[1].upper()
-                            print(f">>> Analyzing {coin}...")
-                            send_telegram_msg(user_chat_id, f"⏳ در حال تحلیل {coin}... لطفا صبر کنید.")
-                            result = analyze_coin(coin)
-                            send_telegram_msg(user_chat_id, result)
-                            print(f">>> Analysis sent for {coin}.")
+                        if len(parts) > 1: coin = parts[1]
+                    # اگر دستور با ANALYZE شروع شده باشد
+                    elif text.startswith("ANALYZE"):
+                        parts = text.split()
+                        if len(parts) > 1: coin = parts[1]
+                    # اگر فقط اسم ارز فرستاده شده باشد (مثل BTC)
+                    elif len(text.split()) == 1 and text.isalnum():
+                        coin = text
+                    
+                    if coin:
+                        send_telegram_msg(user_chat_id, f"⏳ در حال تحلیل زودهنگام {coin}...")
+                        result = analyze_coin(coin)
+                        send_telegram_msg(user_chat_id, result)
             
             if last_update_id:
                 requests.get(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates?offset={last_update_id + 1}", timeout=5)
-                print(">>> Cleared Telegram queue.")
     except Exception as e:
         print(f">>> Error: {e}")
 
-# ================= حلقه اصلی =================
+# ================= حلقه اصلی (اسکن ۵۰ ارز برای سیگنال) =================
 def scan_market():
-    print(">>> Fetching Top 50 Coins...")
     watch_list = get_top_50_coins()
-    
-    if not watch_list:
-        watch_list = ["BTC", "ETH", "SOL", "XRP", "ADA"]
+    if not watch_list: watch_list = ["BTC", "ETH", "SOL", "XRP", "ADA"]
         
-    print(f">>> Scanning {len(watch_list)} coins...")
+    print(f">>> Scanning {len(watch_list)} coins for Early Signals...")
     for coin in watch_list:
         try:
             url = f"https://api.kucoin.com/api/v1/market/candles?type=15min&symbol={coin}-USDT"
@@ -167,45 +164,39 @@ def scan_market():
                 closes = [float(item[2]) for item in data]
                 volumes = [float(item[5]) for item in data]
                 
-                if len(closes) > 30:
+                if len(closes) > 50:
                     current_price = closes[-1]
                     current_volume = volumes[-1]
-                    ema9 = calc_ema(closes, 9)
-                    ema20 = calc_ema(closes, 20)
-                    rsi14 = calc_rsi(closes[-15:], 14)
-                    macd_line = calc_macd(closes)
-                    sma, upper_band, lower_band = calc_bollinger(closes, 20, 2)
-                    avg_volume = sum(volumes[-20:]) / 20 
                     
-                    if ema9 > ema20 and macd_line > 0 and 50 < rsi14 < 75:
-                        if current_price > upper_band and current_volume > (avg_volume * 1.5):
-                            tp = current_price * 1.02 
-                            sl = current_price * 0.99 
-                            msg = (f"🚀 <b>EARLY BUY SIGNAL</b>\n\n"
-                                   f"💰 Coin: <b>{coin}/USDT</b>\n"
-                                   f"📊 Price: {current_price:.4f}\n"
-                                   f"📈 RSI: {rsi14:.2f}\n"
-                                   f"🎯 Take Profit: {tp:.4f}\n"
-                                   f"🛑 Stop Loss: {sl:.4f}")
-                            send_telegram_msg(CHAT_ID, msg)
-                            print(f">>> Buy signal sent for {coin}.")
+                    stoch_rsi = calc_stoch_rsi(closes)
+                    sma, upper_band, lower_band, bb_width = calc_bollinger(closes, 20, 2)
+                    avg_volume = sum(volumes[-20:]) / 20
                     
-                    elif ema9 < ema20 and macd_line < 0 and 25 < rsi14 < 50:
-                        if current_price < lower_band and current_volume > (avg_volume * 1.5):
-                            tp = current_price * 0.98 
-                            sl = current_price * 1.01 
-                            msg = (f"⚠️ <b>EARLY SELL SIGNAL</b>\n\n"
-                                   f"💰 Coin: <b>{coin}/USDT</b>\n"
-                                   f"📊 Price: {current_price:.4f}\n"
-                                   f"📈 RSI: {rsi14:.2f}\n"
-                                   f"🎯 Take Profit: {tp:.4f}\n"
-                                   f"🛑 Stop Loss: {sl:.4f}")
-                            send_telegram_msg(CHAT_ID, msg)
-                            print(f">>> Sell signal sent for {coin}.")
+                    # 🚀 سیگنال خرید زودهنگام
+                    if stoch_rsi < 20 and bb_width < 0.05 and current_volume > (avg_volume * 1.5):
+                        msg = (f"🚀 <b>EARLY WARNING: BUY {coin}</b>\n\n"
+                               f"💰 Price: {current_price:.4f}\n"
+                               f"📉 StochRSI: {stoch_rsi:.2f} (Oversold)\n"
+                               f"📊 BB Squeeze: {bb_width:.4f} (Breakout Imminent)\n"
+                               f"📈 Volume Spike: {current_volume:.0f} (Avg: {avg_volume:.0f})\n"
+                               f"⏰ Time: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+                        send_telegram_msg(CHAT_ID, msg)
+                        print(f"Early Buy sent for {coin}.")
+                    
+                    # 🔻 سیگنال فروش زودهنگام
+                    elif stoch_rsi > 80 and bb_width < 0.05 and current_volume > (avg_volume * 1.5):
+                        msg = (f"🔻 <b>EARLY WARNING: SELL {coin}</b>\n\n"
+                               f"💰 Price: {current_price:.4f}\n"
+                               f"📈 StochRSI: {stoch_rsi:.2f} (Overbought)\n"
+                               f"📊 BB Squeeze: {bb_width:.4f} (Breakdown Imminent)\n"
+                               f"📉 Volume Spike: {current_volume:.0f} (Avg: {avg_volume:.0f})\n"
+                               f"⏰ Time: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+                        send_telegram_msg(CHAT_ID, msg)
+                        print(f"Early Sell sent for {coin}.")
                     
         except Exception as e:
-            print(f">>> Error {coin}: {e}")
-        time.sleep(0.5) 
+            pass
+        time.sleep(0.3) 
 
 if __name__ == "__main__":
     check_telegram_commands()
