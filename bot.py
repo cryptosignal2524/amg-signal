@@ -100,9 +100,12 @@ def analyze_coin(coin):
         return f"❌ خطا در تحلیل {coin}: {e}"
     return f"❌ داده کافی برای {coin} یافت نشد."
 
-# ================= چک کردن پیام‌های کاربران (با لاگ) =================
+# ================= چک کردن پیام‌های کاربران =================
 def check_telegram_commands():
     try:
+        # 🔥 قدم مهم: حذف Webhook برای اینکه بتونیم از getUpdates استفاده کنیم
+        requests.get(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/deleteWebhook", timeout=5)
+        
         print(">>> Checking Telegram for new messages...")
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates?timeout=5"
         response = requests.get(url, timeout=15).json()
@@ -134,6 +137,7 @@ def check_telegram_commands():
                         else:
                             print(">>> No coin name provided.")
             
+            # پاک کردن صف پیام‌ها تا دوباره تکرار نشن
             if last_update_id:
                 requests.get(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates?offset={last_update_id + 1}", timeout=5)
                 print(">>> Cleared Telegram message queue.")
