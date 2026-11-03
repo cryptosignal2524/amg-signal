@@ -22,11 +22,8 @@ def get_top_50_coins():
         response = requests.get(url, timeout=10).json()
         if response.get("code") == "200000":
             tickers = response["data"]["ticker"]
-            # فیلتر جفت‌ارزهای USDT
             usdt_pairs = [t for t in tickers if t["symbol"].endswith("-USDT")]
-            # مرتب‌سازی بر اساس حجم معاملات ۲۴ ساعته (نزولی)
             usdt_pairs.sort(key=lambda x: float(x["volValue"]), reverse=True)
-            # برداشتن ۵۰ ارز اول
             top_50 = [t["symbol"].replace("-USDT", "") for t in usdt_pairs[:50]]
             return top_50
     except Exception as e:
@@ -76,6 +73,7 @@ def analyze_coin(coin):
             
             if len(closes) > 30:
                 current_price = closes[-1]
+                current_volume = volumes[-1]  # <--- این خط اصلاح شد
                 ema9 = calc_ema(closes, 9)
                 ema20 = calc_ema(closes, 20)
                 rsi14 = calc_rsi(closes[-15:], 14)
@@ -105,28 +103,27 @@ def analyze_coin(coin):
 # ================= چک کردن پیام‌های کاربران =================
 def check_telegram_commands():
     try:
-        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates"
-        response = requests.get(url, timeout=10).json()
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates?timeout=5"
+        response = requests.get(url, timeout=15).json()
         
         if response.get("ok") and response.get("result"):
-            now = time.time()
             for msg in response["result"]:
-                # بررسی پیام‌های ۵ دقیقه اخیر
                 if "message" in msg and "text" in msg["message"]:
-                    msg_date = msg["message"].get("date", 0)
-                    if now - msg_date < 300: 
-                        text = msg["message"]["text"]
-                        user_chat_id = msg["message"]["chat"]["id"]
-                        
-                        if text.startswith("/analyze"):
-                            parts = text.split()
-                            if len(parts) > 1:
-                                coin = parts[1].upper()
-                                send_telegram_msg(user_chat_id, f"⏳ در حال تحلیل {coin}... لطفا صبر کنید.")
-                                result = analyze_coin(coin)
-                                send_telegram_msg(user_chat_id, result)
-                            else:
-                                send_telegram_msg(user_chat_id, "⚠️ لطفاً نام ارز را وارد کنید. مثال:\n<code>/analyze BTC</code>")
+                    text = msg["message"]["text"].strip()
+                    user_chat_id = msg["message"]["chat"]["id"]
+                    update_id = msg["update_id"]
+                    
+                    # قبول کردن هم /analyze و هم analyze
+                    if text.lower().startswith("/analyze") or text.lower().startswith("analyze"):
+                        parts = text.split()
+                        if len(parts) > 1:
+                            coin = parts[1].upper()
+                            send_telegram_msg(user_chat_id, f"⏳ در حال تحلیل {coin}... لطفا صبر کنید.")
+                            result = analyze_coin(coin)
+                            send_telegram_msg(user_chat_id, result)
+                    
+                    # علامت زدن پیام به عنوان خوانده شده تا دوباره تکرار نشه
+                    requests.get(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates?offset={update_id + 1}", timeout=5)
     except Exception as e:
         print(f"Error checking commands: {e}")
 
@@ -136,7 +133,6 @@ def scan_market():
     watch_list = get_top_50_coins()
     
     if not watch_list:
-        print("Could not fetch top coins. Using fallback list.")
         watch_list = ["BTC", "ETH", "SOL", "XRP", "ADA"]
         
     print(f"Scanning {len(watch_list)} coins...")
@@ -161,7 +157,6 @@ def scan_market():
                     sma, upper_band, lower_band = calc_bollinger(closes, 20, 2)
                     avg_volume = sum(volumes[-20:]) / 20 
                     
-                    # سیگنال خرید
                     if ema9 > ema20 and macd_line > 0 and 50 < rsi14 < 75:
                         if current_price > upper_band and current_volume > (avg_volume * 1.5):
                             tp = current_price * 1.02 
@@ -175,7 +170,6 @@ def scan_market():
                             send_telegram_msg(CHAT_ID, msg)
                             print(f"Buy signal sent for {coin}.")
                     
-                    # سیگنال فروش
                     elif ema9 < ema20 and macd_line < 0 and 25 < rsi14 < 50:
                         if current_price < lower_band and current_volume > (avg_volume * 1.5):
                             tp = current_price * 0.98 
