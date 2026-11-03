@@ -136,28 +136,39 @@ def check_telegram_commands():
                 
                 if "message" in msg and "text" in msg["message"]:
                     text = msg["message"]["text"].strip().upper()
+                    msg_date = msg["message"].get("date", 0)
                     user_chat_id = msg["message"]["chat"]["id"]
                     
-                    # دستور استارت
+                    # 🔥 فیلتر زمانی: فقط به پیام‌هایی که در ۲ دقیقه اخیر فرستاده شده‌اند جواب بده
+                    if time.time() - msg_date > 120:
+                        continue
+                    
                     if text == "/START":
                         welcome_msg = (
                             "👋 سلام! به ربات تحلیل AMG خوش آمدید.\n\n"
-                            "برای دریافت تحلیل، نام ارز و تایم‌فریم را با یک فاصله بفرستید:\n"
-                            "🔹 <b>BTC 15m</b> (اسکلپ)\n"
-                            "🔹 <b>ETH 1h</b> (۱ ساعته)\n"
+                            "فقط کافیه اسم ارز رو بفرستی تا تحلیل ۱ ساعته بگیری:\n"
+                            "🔹 <b>BTC</b> (تحلیل ۱ ساعته)\n\n"
+                            "برای تایم‌فریم دیگه، با فاصله بنویس:\n"
+                            "🔹 <b>ETH 15m</b> (اسکلپ)\n"
                             "🔹 <b>SOL 4h</b> (۴ ساعته)\n"
                             "🔹 <b>ADA 1d</b> (روزانه)"
                         )
                         send_telegram_msg(user_chat_id, welcome_msg)
                         continue
                     
-                    # بررسی فرمت درخواست (مثلا BTC 1h)
                     parts = text.split()
-                    if len(parts) == 2:
+                    
+                    # ۱. اگر فقط اسم ارز بود (مثلا BTC)
+                    if len(parts) == 1 and text.isalnum() and len(text) <= 6:
+                        send_telegram_msg(user_chat_id, f"⏳ در حال تحلیل {text} در تایم‌فریم پیش‌فرض (1h)...")
+                        result = analyze_single_tf(text, "1hour")
+                        send_telegram_msg(user_chat_id, result)
+                    
+                    # ۲. اگر ارز و تایم‌فریم با هم بود (مثلا BTC 4h)
+                    elif len(parts) == 2:
                         coin = parts[0]
                         tf_input = parts[1].lower()
                         
-                        # تبدیل فرمت‌های کوتاه به فرمت API
                         tf = None
                         if tf_input in ["15m", "15min"]: tf = "15min"
                         elif tf_input in ["1h", "1hour"]: tf = "1hour"
@@ -170,10 +181,6 @@ def check_telegram_commands():
                             send_telegram_msg(user_chat_id, result)
                         else:
                             send_telegram_msg(user_chat_id, "❌ تایم‌فریم نامعتبر است. لطفا از 15m، 1h، 4h یا 1d استفاده کنید.")
-                    
-                    # اگر فقط اسم ارز رو فرستاد (مثلا BTC)
-                    elif len(parts) == 1 and text.isalnum() and len(text) <= 6:
-                        send_telegram_msg(user_chat_id, f"شما ارز <b>{text}</b> را انتخاب کردید.\nلطفاً تایم‌فریم را جلوی آن بنویسید (مثلاً: <b>{text} 1h</b>).")
             
             if last_update_id:
                 requests.get(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates?offset={last_update_id + 1}", timeout=5)
