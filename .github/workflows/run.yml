@@ -1,7 +1,7 @@
 name: AMG Signal Bot
 on:
   schedule:
-    - cron: '*/15 * * * *'  # هر ۱۵ دقیقه
+    - cron: '*/5 * * * *'  # هر ۵ دقیقه
   workflow_dispatch:
 
 jobs:
