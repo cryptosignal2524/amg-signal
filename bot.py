@@ -73,7 +73,7 @@ def analyze_coin(coin):
             
             if len(closes) > 30:
                 current_price = closes[-1]
-                current_volume = volumes[-1]  # <--- این خط اصلاح شد
+                current_volume = volumes[-1]
                 ema9 = calc_ema(closes, 9)
                 ema20 = calc_ema(closes, 20)
                 rsi14 = calc_rsi(closes[-15:], 14)
@@ -100,20 +100,23 @@ def analyze_coin(coin):
         return f"❌ خطا در تحلیل {coin}: {e}"
     return f"❌ داده کافی برای {coin} یافت نشد."
 
-# ================= چک کردن پیام‌های کاربران =================
+# ================= چک کردن پیام‌های کاربران (بدون محدودیت زمانی) =================
 def check_telegram_commands():
     try:
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates?timeout=5"
         response = requests.get(url, timeout=15).json()
         
         if response.get("ok") and response.get("result"):
-            for msg in response["result"]:
+            updates = response["result"]
+            last_update_id = None
+            
+            for msg in updates:
+                last_update_id = msg["update_id"]
+                
                 if "message" in msg and "text" in msg["message"]:
                     text = msg["message"]["text"].strip()
                     user_chat_id = msg["message"]["chat"]["id"]
-                    update_id = msg["update_id"]
                     
-                    # قبول کردن هم /analyze و هم analyze
                     if text.lower().startswith("/analyze") or text.lower().startswith("analyze"):
                         parts = text.split()
                         if len(parts) > 1:
@@ -121,9 +124,10 @@ def check_telegram_commands():
                             send_telegram_msg(user_chat_id, f"⏳ در حال تحلیل {coin}... لطفا صبر کنید.")
                             result = analyze_coin(coin)
                             send_telegram_msg(user_chat_id, result)
-                    
-                    # علامت زدن پیام به عنوان خوانده شده تا دوباره تکرار نشه
-                    requests.get(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates?offset={update_id + 1}", timeout=5)
+            
+            # این خط باعث میشه پیام‌ها به عنوان خوانده شده علامت بخورن تا دفعه بعد دوباره جواب داده نشن
+            if last_update_id:
+                requests.get(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates?offset={last_update_id + 1}", timeout=5)
     except Exception as e:
         print(f"Error checking commands: {e}")
 
