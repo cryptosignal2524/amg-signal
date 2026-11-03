@@ -44,58 +44,62 @@ def calc_atr(highs, lows, closes, period=14):
         trs.append(tr)
     return sum(trs[-period:]) / period
 
-# ================= تشخیص الگوهای کندلی و چارتی =================
+# ================= تشخیص الگوهای کندلی =================
 def detect_patterns(opens, highs, lows, closes, volumes):
     if len(closes) < 20: return None, None
-    
     o, h, l, c = opens[-1], highs[-1], lows[-1], closes[-1]
     prev_o, prev_c = opens[-2], closes[-2]
-    
     body = abs(c - o)
     upper_shadow = h - max(c, o)
     lower_shadow = min(c, o) - l
     avg_volume = sum(volumes[-20:]) / 20
     
-    # 1. کندل مارابوزو (Marubozu) - قدرت خرید یا فروش خالص
+    # کندل مارابوزو
     if body > (h - l) * 0.9:
-        if c > o: return "Bullish Marubozu (مارابوزوی صعودی)", "BUY"
-        else: return "Bearish Marubozu (مارابوزوی نزولی)", "SELL"
-
-    # 2. چکش (Hammer)
+        if c > o: return "Bullish Marubozu", "BUY"
+        else: return "Bearish Marubozu", "SELL"
+    # چکش
     if lower_shadow > 2 * body and upper_shadow < 0.2 * body and c > o:
-        return "Hammer (چکش)", "BUY"
-        
-    # 3. ستاره دنباله‌دار (Shooting Star)
+        return "Hammer", "BUY"
+    # ستاره دنباله‌دار
     if upper_shadow > 2 * body and lower_shadow < 0.2 * body and c < o:
-        return "Shooting Star (ستاره دنباله‌دار)", "SELL"
-
-    # 4. پوشای صعودی (Bullish Engulfing)
+        return "Shooting Star", "SELL"
+    # پوشای صعودی
     if prev_c < prev_o and c > o and c > prev_o and o < prev_c:
-        return "Bullish Engulfing (پوشای صعودی)", "BUY"
-        
-    # 5. پوشای نزولی (Bearish Engulfing)
+        return "Bullish Engulfing", "BUY"
+    # پوشای نزولی
     if prev_c > prev_o and c < o and c < prev_o and o > prev_c:
-        return "Bearish Engulfing (پوشای نزولی)", "SELL"
-
-    # 6. الگوی پرچم صعودی ساده شده (Bullish Flag)
-    # یک رشد شارپ در 5 کندل اخیر و سپس یک استراحت کوچک
-    recent_5_closes = closes[-5:]
-    if recent_5_closes[0] < recent_5_closes[-1] * 0.98 and c < recent_5_closes[-2] and (h - l) < (h - l) * 0.5:
-         if avg_volume > avg_volume * 0.8: # حجم در حال خشک شدن (استراحت)
-             return "Possible Bullish Flag (پرچم صعودی)", "BUY"
-
-    # 7. کف دوقلو (Double Bottom) در 15 کندل اخیر
-    last_15_lows = lows[-15:]
-    min_low = min(last_15_lows)
-    if l - min_low < min_low * 0.01 and c > o: # کندل فعلی نزدیک کف قبلی است و صعودی بسته شده
-        return "Potential Double Bottom (کف دوقلو)", "BUY"
-
+        return "Bearish Engulfing", "SELL"
     return None, None
 
-# ================= تحلیل اختصاصی =================
+# ================= دریافت روند در تایم‌فریم‌های مختلف =================
+def get_trend(coin, timeframe):
+    try:
+        url = f"https://api.kucoin.com/api/v1/market/candles?type={timeframe}&symbol={coin}-USDT"
+        response = requests.get(url, timeout=10).json()
+        if response.get("code") == "200000":
+            data = response.get("data", [])
+            data.reverse()
+            closes = [float(item[2]) for item in data]
+            if len(closes) > 50:
+                ema50 = calc_ema(closes, 50)
+                current_price = closes[-1]
+                return "صعودی 🟢" if current_price > ema50 else "نزولی 🔴", current_price, ema50
+    except Exception:
+        pass
+    return "نامشخص ⚪", 0, 0
+
+# ================= تحلیل اختصاصی (سه‌گانه) =================
 def analyze_coin(coin):
     try:
-        # تایم‌فریم ۱ ساعته برای کندل‌شناسی بهتر
+        # ۱. چک کردن روند روزانه
+        trend_1d, price_1d, _ = get_trend(coin, "1day")
+        time.sleep(0.2)
+        # ۲. چک کردن روند ۴ ساعته
+        trend_4h, price_4h, _ = get_trend(coin, "4hour")
+        time.sleep(0.2)
+        
+        # ۳. دریافت کندل‌های ۱ ساعته برای پیدا کردن الگو
         url = f"https://api.kucoin.com/api/v1/market/candles?type=1hour&symbol={coin}-USDT"
         response = requests.get(url, timeout=10).json()
         if response.get("code") == "200000":
@@ -112,39 +116,36 @@ def analyze_coin(coin):
                 current_price = closes[-1]
                 current_volume = volumes[-1]
                 avg_volume = sum(volumes[-20:]) / 20
-                
-                ema50 = calc_ema(closes, 50)
                 atr = calc_atr(highs, lows, closes)
                 
                 pattern_name, signal_type = detect_patterns(opens, highs, lows, closes, volumes)
                 
-                position = "⚪ خنثی (Neutral)"
+                position = "⚪ خنثی (منتظر هم‌جهت شدن تایم‌فریم‌ها)"
                 tp_sl_info = ""
                 
-                # فیلتر روند اصلی: بالای EMA50 (فقط خرید) - زیر EMA50 (فقط فروش)
-                if signal_type == "BUY" and current_price > ema50:
-                    if current_volume > avg_volume * 1.2: # تایید حجم
-                        position = "🟢 <b>سیگنال خرید (BUY)</b>"
+                # 🚀 شرط خرید سه‌گانه (روند روزانه و ۴ ساعته صعودی + الگوی خرید در ۱ ساعته)
+                if trend_1d == "صعودی 🟢" and trend_4h == "صعودی 🟢":
+                    if signal_type == "BUY" and current_volume > avg_volume * 1.2:
+                        position = "🟢 <b>سیگنال خرید قوی (BUY)</b>"
                         sl = current_price - (atr * 1.5)
                         tp = current_price + (atr * 3.0)
                         tp_sl_info = f"\n🎯 <b>Take Profit:</b> {tp:.4f}\n🛑 <b>Stop Loss:</b> {sl:.4f}"
                 
-                elif signal_type == "SELL" and current_price < ema50:
-                    if current_volume > avg_volume * 1.2:
-                        position = "🔴 <b>سیگنال فروش (SELL)</b>"
+                # 🔻 شرط فروش سه‌گانه (روند روزانه و ۴ ساعته نزولی + الگوی فروش در ۱ ساعته)
+                elif trend_1d == "نزولی 🔴" and trend_4h == "نزولی 🔴":
+                    if signal_type == "SELL" and current_volume > avg_volume * 1.2:
+                        position = "🔴 <b>سیگنال فروش قوی (SELL)</b>"
                         sl = current_price + (atr * 1.5)
                         tp = current_price - (atr * 3.0)
                         tp_sl_info = f"\n🎯 <b>Take Profit:</b> {tp:.4f}\n🛑 <b>Stop Loss:</b> {sl:.4f}"
-                
-                elif pattern_name:
-                    position = "🟡 الگو دیده شد ولی تاییدیه روند/حجم ندارد"
 
-                msg = (f"📊 <b>تحلیل حرفه‌ای {coin}/USDT</b>\n"
+                msg = (f"📊 <b>تحلیل چند تایم‌فریمی {coin}/USDT</b>\n"
                        f"━━━━━━━━━━━━━━━\n"
                        f"🎯 <b>موقعیت: {position}</b>\n\n"
+                       f"🌍 روند روزانه (1D): {trend_1d}\n"
+                       f"⏳ روند ۴ ساعته (4H): {trend_4h}\n"
+                       f"🕯️ الگوی ۱ ساعته (1H): {pattern_name if pattern_name else 'بدون الگو'}\n\n"
                        f"💰 قیمت فعلی: {current_price:.4f}\n"
-                       f"🕯️ الگوی شناسایی شده: {pattern_name if pattern_name else 'الگوی خاصی یافت نشد'}\n"
-                       f"📈 روند اصلی (EMA50): {'صعودی ✅' if current_price > ema50 else 'نزولی ❌'}\n"
                        f"📊 حجم: {current_volume:.0f} (میانگین: {avg_volume:.0f}){tp_sl_info}\n\n"
                        f"⏰ زمان: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
                 return msg
@@ -177,7 +178,7 @@ def check_telegram_commands():
                         coin = text
                     
                     if coin:
-                        send_telegram_msg(user_chat_id, f"⏳ در حال تحلیل {coin}...")
+                        send_telegram_msg(user_chat_id, f"⏳ در حال تحلیل سه‌گانه {coin}...")
                         result = analyze_coin(coin)
                         send_telegram_msg(user_chat_id, result)
             if last_update_id:
@@ -190,9 +191,20 @@ def scan_market():
     watch_list = get_top_50_coins()
     if not watch_list: watch_list = ["BTC", "ETH", "SOL", "XRP", "ADA"]
         
-    print(f">>> Scanning {len(watch_list)} coins...")
+    print(f">>> Scanning {len(watch_list)} coins with Multi-Timeframe...")
     for coin in watch_list:
         try:
+            trend_1d, _, _ = get_trend(coin, "1day")
+            time.sleep(0.1)
+            trend_4h, _, _ = get_trend(coin, "4hour")
+            time.sleep(0.1)
+            
+            # اگر روند روزانه و ۴ ساعته هم‌جهت نبودن، ادامه بده (وقت رو تلف نکن)
+            if "نامشخص" in trend_1d or "نامشخص" in trend_4h:
+                continue
+            if trend_1d != trend_4h:
+                continue
+
             url = f"https://api.kucoin.com/api/v1/market/candles?type=1hour&symbol={coin}-USDT"
             response = requests.get(url, timeout=10).json()
             
@@ -209,16 +221,16 @@ def scan_market():
                     current_price = closes[-1]
                     current_volume = volumes[-1]
                     avg_volume = sum(volumes[-20:]) / 20
-                    ema50 = calc_ema(closes, 50)
                     atr = calc_atr(highs, lows, closes)
                     
                     pattern_name, signal_type = detect_patterns(opens, highs, lows, closes, volumes)
                     
                     if pattern_name and current_volume > avg_volume * 1.2:
-                        if signal_type == "BUY" and current_price > ema50:
+                        if signal_type == "BUY" and trend_1d == "صعودی 🟢":
                             sl = current_price - (atr * 1.5)
                             tp = current_price + (atr * 3.0)
                             msg = (f"🚀 <b>BUY SIGNAL: {coin}</b>\n\n"
+                                   f"🌍 1D Trend: UP | ⏳ 4H Trend: UP\n"
                                    f"🕯️ Pattern: {pattern_name}\n"
                                    f"💰 Price: {current_price:.4f}\n"
                                    f"🎯 TP: {tp:.4f} | 🛑 SL: {sl:.4f}\n"
@@ -226,10 +238,11 @@ def scan_market():
                             send_telegram_msg(CHAT_ID, msg)
                             print(f"Buy sent for {coin}.")
                             
-                        elif signal_type == "SELL" and current_price < ema50:
+                        elif signal_type == "SELL" and trend_1d == "نزولی 🔴":
                             sl = current_price + (atr * 1.5)
                             tp = current_price - (atr * 3.0)
                             msg = (f"⚠️ <b>SELL SIGNAL: {coin}</b>\n\n"
+                                   f"🌍 1D Trend: DOWN | ⏳ 4H Trend: DOWN\n"
                                    f"🕯️ Pattern: {pattern_name}\n"
                                    f"💰 Price: {current_price:.4f}\n"
                                    f"🎯 TP: {tp:.4f} | 🛑 SL: {sl:.4f}\n"
@@ -238,7 +251,7 @@ def scan_market():
                             print(f"Sell sent for {coin}.")
         except Exception as e:
             pass
-        time.sleep(0.5) 
+        time.sleep(0.3) 
 
 if __name__ == "__main__":
     check_telegram_commands()
