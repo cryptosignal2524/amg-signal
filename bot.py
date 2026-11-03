@@ -67,7 +67,7 @@ def calc_bollinger(data, period=20, std_dev=2):
     bb_width = (upper_band - lower_band) / sma 
     return sma, upper_band, lower_band, bb_width
 
-# ================= تحلیل اختصاصی (با نام ارز) =================
+# ================= تحلیل اختصاصی (اعلام موقعیت) =================
 def analyze_coin(coin):
     try:
         url = f"https://api.kucoin.com/api/v1/market/candles?type=15min&symbol={coin}-USDT"
@@ -86,18 +86,35 @@ def analyze_coin(coin):
                 sma, upper_band, lower_band, bb_width = calc_bollinger(closes, 20, 2)
                 avg_volume = sum(volumes[-20:]) / 20
                 
-                status = "⚖️ خنثی (بدون سیگنال زودهنگام)"
-                if stoch_rsi < 20:
-                    status = "🟢 <b>آماده رشد (اشباع فروش StochRSI)</b>"
-                elif stoch_rsi > 80:
-                    status = "🔴 <b>آماده ریزش (اشباع خرید StochRSI)</b>"
-                    
-                msg = (f"📊 <b>تحلیل زودهنگام {coin}/USDT</b>\n\n"
+                # 🎯 تعیین موقعیت دقیق
+                position = "⚪ خنثی (Neutral)"
+                position_color = "⚪"
+                
+                # شرایط خرید قوی
+                if stoch_rsi < 20 and bb_width < 0.05 and current_volume > (avg_volume * 1.5):
+                    position = "🟢 <b>خرید (BUY)</b>"
+                    position_color = "🟢"
+                # شرایط فروش قوی
+                elif stoch_rsi > 80 and bb_width < 0.05 and current_volume > (avg_volume * 1.5):
+                    position = "🔴 <b>فروش (SELL)</b>"
+                    position_color = "🔴"
+                # شرایط نزدیک به خرید (آماده رشد ولی تاییدیه کامل نیست)
+                elif stoch_rsi < 25 or (stoch_rsi < 30 and bb_width < 0.06):
+                    position = "🟡 نزدیک به خرید (Weak Buy)"
+                    position_color = "🟡"
+                # شرایط نزدیک به فروش (آماده ریزش ولی تاییدیه کامل نیست)
+                elif stoch_rsi > 75 or (stoch_rsi > 70 and bb_width < 0.06):
+                    position = "🟠 نزدیک به فروش (Weak Sell)"
+                    position_color = "🟠"
+
+                msg = (f"📊 <b>تحلیل {coin}/USDT</b>\n"
+                       f"━━━━━━━━━━━━━━━\n"
+                       f"🎯 <b>موقعیت: {position}</b>\n\n"
                        f"💰 قیمت فعلی: {current_price:.4f}\n"
-                       f"📈 وضعیت: {status}\n\n"
-                       f"🔹 StochRSI: {stoch_rsi:.2f}\n"
-                       f"🔹 فشردگی بولینگر: {bb_width:.4f}\n"
-                       f"🔹 حجم فعلی: {current_volume:.0f} (میانگین: {avg_volume:.0f})\n\n"
+                       f"📉 StochRSI: {stoch_rsi:.2f}\n"
+                       f"📊 فشردگی بولینگر: {bb_width:.4f}\n"
+                       f"📈 حجم فعلی: {current_volume:.0f}\n"
+                       f"📊 میانگین حجم: {avg_volume:.0f}\n\n"
                        f"⏰ زمان: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
                 return msg
     except Exception as e:
@@ -125,20 +142,17 @@ def check_telegram_commands():
                     if text == "/START": continue
                     
                     coin = None
-                    # اگر دستور با /analyze شروع شده باشد
                     if text.startswith("/ANALYZE"):
                         parts = text.split()
                         if len(parts) > 1: coin = parts[1]
-                    # اگر دستور با ANALYZE شروع شده باشد
                     elif text.startswith("ANALYZE"):
                         parts = text.split()
                         if len(parts) > 1: coin = parts[1]
-                    # اگر فقط اسم ارز فرستاده شده باشد (مثل BTC)
                     elif len(text.split()) == 1 and text.isalnum():
                         coin = text
                     
                     if coin:
-                        send_telegram_msg(user_chat_id, f"⏳ در حال تحلیل زودهنگام {coin}...")
+                        send_telegram_msg(user_chat_id, f"⏳ در حال تحلیل {coin}...")
                         result = analyze_coin(coin)
                         send_telegram_msg(user_chat_id, result)
             
@@ -147,12 +161,12 @@ def check_telegram_commands():
     except Exception as e:
         print(f">>> Error: {e}")
 
-# ================= حلقه اصلی (اسکن ۵۰ ارز برای سیگنال) =================
+# ================= حلقه اصلی (اسکن ۵۰ ارز) =================
 def scan_market():
     watch_list = get_top_50_coins()
     if not watch_list: watch_list = ["BTC", "ETH", "SOL", "XRP", "ADA"]
         
-    print(f">>> Scanning {len(watch_list)} coins for Early Signals...")
+    print(f">>> Scanning {len(watch_list)} coins...")
     for coin in watch_list:
         try:
             url = f"https://api.kucoin.com/api/v1/market/candles?type=15min&symbol={coin}-USDT"
@@ -172,24 +186,24 @@ def scan_market():
                     sma, upper_band, lower_band, bb_width = calc_bollinger(closes, 20, 2)
                     avg_volume = sum(volumes[-20:]) / 20
                     
-                    # 🚀 سیگنال خرید زودهنگام
+                    # سیگنال خرید زودهنگام به کانال
                     if stoch_rsi < 20 and bb_width < 0.05 and current_volume > (avg_volume * 1.5):
                         msg = (f"🚀 <b>EARLY WARNING: BUY {coin}</b>\n\n"
                                f"💰 Price: {current_price:.4f}\n"
-                               f"📉 StochRSI: {stoch_rsi:.2f} (Oversold)\n"
-                               f"📊 BB Squeeze: {bb_width:.4f} (Breakout Imminent)\n"
-                               f"📈 Volume Spike: {current_volume:.0f} (Avg: {avg_volume:.0f})\n"
+                               f"📉 StochRSI: {stoch_rsi:.2f}\n"
+                               f"📊 BB Squeeze: {bb_width:.4f}\n"
+                               f"📈 Volume: {current_volume:.0f}\n"
                                f"⏰ Time: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
                         send_telegram_msg(CHAT_ID, msg)
                         print(f"Early Buy sent for {coin}.")
                     
-                    # 🔻 سیگنال فروش زودهنگام
+                    # سیگنال فروش زودهنگام به کانال
                     elif stoch_rsi > 80 and bb_width < 0.05 and current_volume > (avg_volume * 1.5):
                         msg = (f"🔻 <b>EARLY WARNING: SELL {coin}</b>\n\n"
                                f"💰 Price: {current_price:.4f}\n"
-                               f"📈 StochRSI: {stoch_rsi:.2f} (Overbought)\n"
-                               f"📊 BB Squeeze: {bb_width:.4f} (Breakdown Imminent)\n"
-                               f"📉 Volume Spike: {current_volume:.0f} (Avg: {avg_volume:.0f})\n"
+                               f"📈 StochRSI: {stoch_rsi:.2f}\n"
+                               f"📊 BB Squeeze: {bb_width:.4f}\n"
+                               f"📉 Volume: {current_volume:.0f}\n"
                                f"⏰ Time: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
                         send_telegram_msg(CHAT_ID, msg)
                         print(f"Early Sell sent for {coin}.")
