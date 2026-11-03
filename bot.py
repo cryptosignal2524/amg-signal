@@ -1,11 +1,10 @@
 import requests
 import time
-import os
 from datetime import datetime
 
-# 🔐 خواندن توکن از Secrets
-TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
-CHAT_ID = os.environ.get("CHAT_ID")
+# 🔐 توکن مستقیماً اینجا قرار گرفت (بدون نیاز به Secrets)
+TELEGRAM_TOKEN = "9268038700:AAGEtH4cmpoQg7rzPs8h0APqB8-HO93ILz8"
+CHAT_ID = "@AMG_Signals" # نام کانال شما
 
 def send_telegram_msg(chat_id, message):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
@@ -100,26 +99,21 @@ def analyze_coin(coin):
         return f"❌ خطا در تحلیل {coin}: {e}"
     return f"❌ داده کافی برای {coin} یافت نشد."
 
-# ================= چک کردن پیام‌های کاربران (با لاگ کامل) =================
+# ================= چک کردن پیام‌های کاربران =================
 def check_telegram_commands():
     try:
         print(">>> Checking Telegram for new messages...")
-        print(f">>> Token length: {len(TELEGRAM_TOKEN)}")
-        print(f">>> Token starts with: {TELEGRAM_TOKEN[:10]}")
         
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates?timeout=5"
         response = requests.get(url, timeout=15)
         
-        print(f">>> Response Status Code: {response.status_code}")
-        print(f">>> Response Text: {response.text}")
-        
         if response.status_code != 200:
-            print(">>> ERROR: Telegram API is not returning 200. The token might be wrong.")
+            print(f">>> ERROR: Status {response.status_code}")
             return
 
         data = response.json()
         if not data.get("ok"):
-            print(f">>> ERROR: Telegram API returned ok:false. Reason: {data.get('description')}")
+            print(f">>> ERROR: {data.get('description')}")
             return
 
         updates_count = len(data.get("result", []))
@@ -135,7 +129,7 @@ def check_telegram_commands():
                 if "message" in msg and "text" in msg["message"]:
                     text = msg["message"]["text"].strip()
                     user_chat_id = msg["message"]["chat"]["id"]
-                    print(f">>> Received message: '{text}' from Chat ID: {user_chat_id}")
+                    print(f">>> Received: '{text}'")
                     
                     if text.lower().startswith("/analyze") or text.lower().startswith("analyze"):
                         parts = text.split()
@@ -146,18 +140,16 @@ def check_telegram_commands():
                             result = analyze_coin(coin)
                             send_telegram_msg(user_chat_id, result)
                             print(f">>> Analysis sent for {coin}.")
-                        else:
-                            print(">>> No coin name provided.")
             
             if last_update_id:
                 requests.get(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates?offset={last_update_id + 1}", timeout=5)
-                print(">>> Cleared Telegram message queue.")
+                print(">>> Cleared Telegram queue.")
     except Exception as e:
-        print(f">>> Error checking commands: {e}")
+        print(f">>> Error: {e}")
 
 # ================= حلقه اصلی =================
 def scan_market():
-    print(f">>> Fetching Top 50 Coins...")
+    print(">>> Fetching Top 50 Coins...")
     watch_list = get_top_50_coins()
     
     if not watch_list:
