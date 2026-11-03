@@ -1,7 +1,7 @@
 name: AMG Signal Bot
 on:
   schedule:
-    - cron: '0 */4 * * *'
+    - cron: '*/15 * * * *'  # هر ۱۵ دقیقه
   workflow_dispatch:
 
 jobs:
@@ -17,4 +17,6 @@ jobs:
         run: pip install requests
       - name: Run Bot
         run: python bot.py
-
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
