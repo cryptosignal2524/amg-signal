@@ -2,9 +2,10 @@ import requests
 import time
 from datetime import datetime
 
-# 🔐 توکن
+# 🔐 توکن و آیدی کانال
 TELEGRAM_TOKEN = "9268038700:AAGEtH4cmpoQg7rzPs8h0APqB8-HO93ILz8"
 CHAT_ID = "@AMG_Signals"
+MY_USER_ID = "437930017" # آیدی عددی خودت برای پیام‌های وضعیت
 
 def send_telegram_msg(chat_id, message):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
@@ -14,7 +15,20 @@ def send_telegram_msg(chat_id, message):
     except Exception as e:
         print(f"Error sending message: {e}")
 
-# ================= تشخیص الگوهای کندلی و شکست سطوح =================
+def calc_rsi(closes, period=14):
+    if len(closes) < period + 1: return 50
+    gains, losses = 0, 0
+    for i in range(1, period + 1):
+        diff = closes[-i] - closes[-i-1]
+        if diff > 0: gains += diff
+        else: losses -= diff
+    avg_gain = gains / period
+    avg_loss = losses / period
+    if avg_loss == 0: return 100
+    rs = avg_gain / avg_loss
+    return 100 - (100 / (1 + rs))
+
+# ================= تشخیص الگوهای کندلی و سطوح =================
 def detect_price_action(opens, highs, lows, closes):
     if len(closes) < 25: return None, None, None, None
     
@@ -23,6 +37,9 @@ def detect_price_action(opens, highs, lows, closes):
     recent_lows = lows[-lookback-1:-1]
     resistance = max(recent_highs)
     support = min(recent_lows)
+    
+    # بررسی RSI
+    rsi = calc_rsi(closes)
     
     o, h, l, c = opens[-1], highs[-1], lows[-1], closes[-1]
     prev_o, prev_c = opens[-2], closes[-2]
@@ -34,44 +51,32 @@ def detect_price_action(opens, highs, lows, closes):
     pattern_name = None
     signal_type = None
 
-    # ۱. تشخیص شکست سطح (Breakout/Breakdown) - مهم‌ترین بخش برای بازارهای شارپ
-    if c < support:
+    # ۱. تشخیص شکست سطح (Breakout/Breakdown)
+    if c < support and rsi < 40: # شکست حمایت + RSI ضعیف
         signal_type = "SELL"
-        pattern_name = "Support Breakdown (شکست حمایت)"
-    elif c > resistance:
+        pattern_name = "Support Breakdown + RSI Oversold"
+    elif c > resistance and rsi > 60: # شکست مقاومت + RSI قوی
         signal_type = "BUY"
-        pattern_name = "Resistance Breakout (شکست مقاومت)"
+        pattern_name = "Resistance Breakout + RSI Strong"
         
-    # ۲. تشخیص الگوهای کندلی برای تایید بیشتر
+    # ۲. تشخیص الگوهای کندلی
     else:
-        # الگوی چکش (Hammer)
+        # چکش
         if lower_shadow > 2 * body and upper_shadow < 0.2 * body and c > o:
             pattern_name = "Hammer (چکش)"
             signal_type = "BUY"
-                
-        # الگوی ستاره دنباله‌دار (Shooting Star)
+        # ستاره دنباله‌دار
         elif upper_shadow > 2 * body and lower_shadow < 0.2 * body and c < o:
             pattern_name = "Shooting Star (ستاره دنباله‌دار)"
             signal_type = "SELL"
-
-        # الگوی پوشای صعودی (Bullish Engulfing)
+        # پوشای صعودی
         elif prev_c < prev_o and c > o and c > prev_o and o < prev_c:
             pattern_name = "Bullish Engulfing (پوشای صعودی)"
             signal_type = "BUY"
-                
-        # الگوی پوشای نزولی (Bearish Engulfing)
+        # پوشای نزولی
         elif prev_c > prev_o and c < o and c < prev_o and o > prev_c:
             pattern_name = "Bearish Engulfing (پوشای نزولی)"
             signal_type = "SELL"
-
-        # الگوی مارابوزو (Marubozu) - کندل‌های با قدرت زیاد
-        elif body > (h - l) * 0.9:
-            if c > o:
-                pattern_name = "Bullish Marubozu (مارابوزوی صعودی)"
-                signal_type = "BUY"
-            else:
-                pattern_name = "Bearish Marubozu (مارابوزوی نزولی)"
-                signal_type = "SELL"
 
     return pattern_name, signal_type, support, resistance
 
@@ -100,6 +105,7 @@ def analyze_coin(coin, tf="5min"):
         if len(closes) > 25:
             current_price = closes[-1]
             pattern_name, signal_type, support, resistance = detect_price_action(opens, highs, lows, closes)
+            rsi = calc_rsi(closes)
             
             position = "⚪ خنثی (بدون سیگنال)"
             if signal_type == "BUY": position = "🟢 <b>سیگنال خرید (BUY)</b>"
@@ -110,6 +116,7 @@ def analyze_coin(coin, tf="5min"):
                    f"🎯 <b>موقعیت: {position}</b>\n\n"
                    f"💰 قیمت فعلی: {current_price:.4f}\n"
                    f"🕯️ الگو: {pattern_name if pattern_name else 'الگوی خاصی یافت نشد'}\n"
+                   f"📊 RSI: {rsi:.2f}\n"
                    f"🛡 حمایت: {support:.4f}\n"
                    f"🚧 مقاومت: {resistance:.4f}\n\n"
                    f"⏰ زمان: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
@@ -138,7 +145,11 @@ def check_telegram_commands():
                     user_chat_id = msg["message"]["chat"]["id"]
                     
                     if text == "/START":
-                        send_telegram_msg(user_chat_id, "👋 سلام!\nاسم ارز رو بفرست (مثلا: BTC).\nبرای تایم‌فریم خاص: BTC 4h")
+                        send_telegram_msg(user_chat_id, "👋 سلام!\nاسم ارز رو بفرست (مثلا: BTC).\nبرای تایم‌فریم خاص: BTC 4h\nبرای وضعیت ربات: /status")
+                        continue
+                    
+                    if text == "/STATUS":
+                        send_telegram_msg(user_chat_id, "✅ ربات زنده است و در حال کار روی تایم‌فریم ۵ دقیقه‌ای است. اگر سیگنالی در کانال نیامده، یعنی هنوز ستاپ عالی پیدا نشده است.")
                         continue
                     
                     parts = text.split()
@@ -151,15 +162,17 @@ def check_telegram_commands():
     except Exception as e:
         print(f">>> Error: {e}")
 
-# ================= حلقه اسکن بازار (۳۰ ارز برتر) =================
+# ================= حلقه اسکن بازار =================
 def scan_market():
-    # لیست ۳۰ ارز برتر برای اسکن
+    # ۳۰ ارز برتر
     watch_list = [
         "BTC", "ETH", "SOL", "XRP", "ADA", "DOGE", "BNB", "LTC", "LINK", "MATIC",
         "DOT", "AVAX", "SHIB", "TRX", "UNI", "ATOM", "ETC", "XLM", "BCH", "FIL",
         "APT", "ARB", "OP", "SUI", "SEI", "TIA", "INJ", "NEAR", "GRT", "AAVE"
     ]
-    print(f">>> Scanning {len(watch_list)} coins for Breakouts/Candles...")
+    print(f">>> Scanning {len(watch_list)} coins...")
+    signals_found = 0
+    
     for coin in watch_list:
         try:
             url = f"https://api.kucoin.com/api/v1/market/candles?type=5min&symbol={coin}-USDT"
@@ -183,7 +196,8 @@ def scan_market():
                                f"🚧 Resistance: {resistance:.4f}\n"
                                f"⏰ Time: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
                         send_telegram_msg(CHAT_ID, msg)
-                        print(f">>> Sent BUY signal for {coin}.")
+                        signals_found += 1
+                        print(f">>> BUY signal for {coin}")
                         
                     elif signal_type == "SELL":
                         msg = (f"🔴 <b>SELL SIGNAL: {coin}</b>\n\n"
@@ -192,10 +206,13 @@ def scan_market():
                                f"🛡 Support: {support:.4f}\n"
                                f"⏰ Time: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
                         send_telegram_msg(CHAT_ID, msg)
-                        print(f">>> Sent SELL signal for {coin}.")
+                        signals_found += 1
+                        print(f">>> SELL signal for {coin}")
         except Exception as e:
             pass
-        time.sleep(0.3)
+        time.sleep(0.2)
+    
+    print(f">>> Scan finished. Total signals sent: {signals_found}")
 
 if __name__ == "__main__":
     check_telegram_commands()
